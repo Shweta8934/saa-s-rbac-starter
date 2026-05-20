@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermission } from "@/hooks/usePermission";
 import { DashboardLayout } from "@/components/layout";
@@ -32,9 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { invites } from "@/data/invites";
-import { roles } from "@/data/roles";
-import { users } from "@/data/users";
+import { Role, User } from "@/types";
 import { Invite } from "@/types";
 import { 
   Search, 
@@ -51,15 +49,48 @@ import {
 import Link from "next/link";
 
 export default function InvitesPage() {
-  const { organization } = useAuth();
+  const { organization, user } = useAuth();
   const { can } = usePermission();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedInvite, setSelectedInvite] = useState<Invite | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [allInvites, setAllInvites] = useState<Invite[]>([]);
+  const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+
+  const effectiveOrganizationId =
+    organization?.id || user?.organizationId || selectedOrganizationId;
+
+  useEffect(() => {
+    async function loadData() {
+      if (!effectiveOrganizationId) return;
+      const [invitesRes, rolesRes, usersRes] = await Promise.all([
+        fetch(`/api/invites?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}`),
+        fetch(`/api/roles?organizationId=${effectiveOrganizationId}`),
+        fetch(`/api/users?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}`),
+      ]);
+      const invitesData = await invitesRes.json();
+      const rolesData = await rolesRes.json();
+      const usersData = await usersRes.json();
+      setAllInvites(invitesData.invites ?? []);
+      setAllRoles(rolesData.roles ?? []);
+      setAllUsers(usersData.users ?? []);
+    }
+    async function loadOrganizationsIfNeeded() {
+      if (organization?.id || user?.organizationId) return;
+      const res = await fetch("/api/organizations");
+      const data = await res.json();
+      const firstId = data.organizations?.[0]?.id as string | undefined;
+      if (firstId && !selectedOrganizationId) setSelectedOrganizationId(firstId);
+    }
+    loadOrganizationsIfNeeded();
+    loadData();
+  }, [effectiveOrganizationId, organization?.id, selectedOrganizationId, user?.organizationId]);
 
   // Filter invites by organization
-  const orgInvites = invites.filter(
-    (i) => i.organizationId === organization?.id
+  const orgInvites = allInvites.filter(
+    (i) => i.organizationId === effectiveOrganizationId
   );
 
   // Apply search filter
@@ -83,7 +114,13 @@ export default function InvitesPage() {
   };
 
   const handleDeleteInvite = () => {
-    console.log("Deleting invite:", selectedInvite?.id);
+    if (selectedInvite?.id) {
+      fetch(`/api/invites/${selectedInvite.id}?actorUserId=${user?.id ?? ""}`, {
+        method: "DELETE",
+      }).then(() => {
+        setAllInvites((prev) => prev.filter((i) => i.id !== selectedInvite.id));
+      });
+    }
     setIsDeleteDialogOpen(false);
     setSelectedInvite(null);
   };
@@ -95,7 +132,7 @@ export default function InvitesPage() {
       case "accepted":
         return <CheckCircle className="h-4 w-4 text-green-600" />;
       case "expired":
-      case "revoked":
+      case "cancelled":
         return <XCircle className="h-4 w-4 text-red-600" />;
     }
   };
@@ -107,7 +144,7 @@ export default function InvitesPage() {
       case "accepted":
         return "default" as const;
       case "expired":
-      case "revoked":
+      case "cancelled":
         return "destructive" as const;
     }
   };
@@ -231,8 +268,8 @@ export default function InvitesPage() {
                   </TableHeader>
                   <TableBody>
                     {filteredInvites.map((invite) => {
-                      const role = roles.find((r) => r.id === invite.roleId);
-                      const inviter = users.find(
+                      const role = allRoles.find((r) => r.id === invite.roleId);
+                      const inviter = allUsers.find(
                         (u) => u.id === invite.invitedBy
                       );
                       const expired = isExpired(invite.expiresAt);

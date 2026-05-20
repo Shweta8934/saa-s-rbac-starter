@@ -1,14 +1,10 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { invites } from "@/data/invites";
-import { organizations } from "@/data/organizations";
-import { roles } from "@/data/roles";
-import { users } from "@/data/users";
 import { 
   CheckCircle, 
   XCircle, 
@@ -19,6 +15,8 @@ import {
   ArrowRight
 } from "lucide-react";
 import Link from "next/link";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function AcceptInvitePage({
   params,
@@ -30,14 +28,32 @@ export default function AcceptInvitePage({
   const [isAccepting, setIsAccepting] = useState(false);
   const [isDeclined, setIsDeclined] = useState(false);
   const [isAccepted, setIsAccepted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [invite, setInvite] = useState<any>(null);
+  const [organization, setOrganization] = useState<any>(null);
+  const [role, setRole] = useState<any>(null);
+  const [inviter, setInviter] = useState<any>(null);
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
-  // Find the invite by token
-  const invite = invites.find((i) => i.token === token);
-  const organization = invite
-    ? organizations.find((o) => o.id === invite.organizationId)
-    : null;
-  const role = invite ? roles.find((r) => r.id === invite.roleId) : null;
-  const inviter = invite ? users.find((u) => u.id === invite.invitedBy) : null;
+  useEffect(() => {
+    async function loadInvite() {
+      const res = await fetch(`/api/invites/token/${token}`);
+      if (!res.ok) {
+        setInvite(null);
+        setIsLoading(false);
+        return;
+      }
+      const data = await res.json();
+      setInvite(data.invite ?? null);
+      setOrganization(data.organization ?? null);
+      setRole(data.role ?? null);
+      setInviter(data.inviter ?? null);
+      setIsLoading(false);
+    }
+    loadInvite();
+  }, [token]);
 
   // Check if invite is valid
   const isExpired = invite ? new Date(invite.expiresAt) < new Date() : false;
@@ -48,17 +64,50 @@ export default function AcceptInvitePage({
 
   const handleAccept = async () => {
     setIsAccepting(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    console.log("Accepting invite:", token);
+    setAcceptError(null);
+    const res = await fetch(`/api/invites/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token,
+        name,
+        password,
+      }),
+    });
+    if (res.ok) {
+      setInvite((prev: any) => (prev ? { ...prev, status: "accepted" } : prev));
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setAcceptError(err.error ?? "Failed to accept invitation");
+      setIsAccepting(false);
+      return;
+    }
     setIsAccepting(false);
     setIsAccepted(true);
   };
 
   const handleDecline = async () => {
-    console.log("Declining invite:", token);
+    if (invite?.id) {
+      await fetch(`/api/invites/${invite.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+    }
     setIsDeclined(true);
   };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <CardTitle>Loading Invitation...</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   // Invalid or not found
   if (!invite) {
@@ -229,6 +278,21 @@ export default function AcceptInvitePage({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">Your Name</Label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Set Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {acceptError && <p className="text-sm text-destructive">{acceptError}</p>}
+
           {/* Organization Info */}
           <div className="flex items-center gap-3 p-3 rounded-lg border">
             <Building2 className="h-5 w-5 text-muted-foreground" />
@@ -299,7 +363,7 @@ export default function AcceptInvitePage({
           <Button
             className="flex-1"
             onClick={handleAccept}
-            disabled={isAccepting}
+            disabled={isAccepting || name.trim().length < 2 || password.length < 6}
           >
             {isAccepting ? "Accepting..." : "Accept Invitation"}
           </Button>

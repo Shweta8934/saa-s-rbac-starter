@@ -15,7 +15,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Spinner } from '@/components/ui/spinner'
 import { Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react'
-import { getUserById } from '@/data/users'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -43,31 +42,17 @@ export default function LoginPage() {
     const result = await login(data)
     
     if (result.success) {
-      // Get the user to determine redirect
       const storedUser = localStorage.getItem('saas_rbac_user')
       if (storedUser) {
         const user = JSON.parse(storedUser)
-        const fullUser = getUserById(user.id)
-        if (fullUser) {
-          const dashboardUrl = getDashboardRoute(fullUser)
-          router.push(dashboardUrl)
-        }
+        const dashboardUrl = getDashboardRoute(user)
+        router.push(dashboardUrl)
       }
     } else {
       setError(result.error || 'Login failed')
     }
   }
 
-  // Demo credentials
-  const demoCredentials = [
-    { email: 'superadmin@example.com', label: 'Super Admin' },
-    { email: 'orgadmin@example.com', label: 'Org Admin' },
-    { email: 'hr@example.com', label: 'HR' },
-    { email: 'recruiter@example.com', label: 'Recruiter' },
-    { email: 'developer@example.com', label: 'Developer' },
-    { email: 'billing@example.com', label: 'Billing' },
-    { email: 'member@example.com', label: 'Member' },
-  ]
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
@@ -161,33 +146,6 @@ export default function LoginPage() {
           </form>
         </Card>
 
-        {/* Demo Credentials */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Demo Credentials</CardTitle>
-            <CardDescription className="text-xs">
-              Password for all accounts: password123
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2">
-            {demoCredentials.map((cred) => (
-              <Button
-                key={cred.email}
-                variant="outline"
-                size="sm"
-                className="text-xs justify-start"
-                onClick={() => {
-                  const emailInput = document.getElementById('email') as HTMLInputElement
-                  const passwordInput = document.getElementById('password') as HTMLInputElement
-                  if (emailInput) emailInput.value = cred.email
-                  if (passwordInput) passwordInput.value = 'password123'
-                }}
-              >
-                {cred.label}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

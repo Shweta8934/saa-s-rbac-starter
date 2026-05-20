@@ -13,8 +13,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { permissions as allPermissions } from "@/data/permissions";
-import { roles } from "@/data/roles";
-import { addEntityItem, initializeDynamicData } from "@/lib/dynamic-data";
 import { ArrowLeft, Shield, Save } from "lucide-react";
 import Link from "next/link";
 
@@ -70,29 +68,25 @@ export default function CreateRolePage() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
     const roleSlug = name
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
 
-    initializeDynamicData();
-    const newRole = {
-      id: `role-${Date.now()}`,
+    await fetch("/api/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
       name: name.trim(),
       slug: roleSlug || `role-${Date.now()}`,
       description: description.trim() || "Custom role",
       organizationId: organization?.id ?? null,
       isSystem: false,
       permissions: selectedPermissions,
-      createdAt: new Date().toISOString(),
       color,
-    } as any;
-    roles.push(newRole);
-    addEntityItem("roles", newRole);
+      }),
+    });
 
     router.push("/roles");
   };

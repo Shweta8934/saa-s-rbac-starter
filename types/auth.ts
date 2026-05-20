@@ -6,9 +6,11 @@ export interface User {
   id: string
   name: string
   email: string
-  password: string // In real app, this would be hashed
+  password?: string
   organizationId: string | null
   roleId: string
+  roleSlug?: string | null
+  rolePermissions?: string[]
   status: UserStatus
   avatar?: string
   joinedAt: string

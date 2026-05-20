@@ -1,15 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { useSubscription } from "@/hooks/useSubscription";
+import { usePermission } from "@/hooks/usePermission";
 import { DashboardLayout } from "@/components/layout";
 import { PageHeader } from "@/components/common";
-import { RoleBadge, SubscriptionGate } from "@/components/rbac";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -19,25 +17,100 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { roles } from "@/data/roles";
-import { ArrowLeft, Send, UserPlus, AlertTriangle } from "lucide-react";
+import { Role } from "@/types";
+import { ArrowLeft, Send, UserPlus } from "lucide-react";
 import Link from "next/link";
+import { toast } from "sonner";
 
 export default function SendInvitePage() {
   const router = useRouter();
-  const { organization, user } = useAuth();
-  const { usage, canAddMoreMembers } = useSubscription();
+  const { user } = useAuth();
+  const { can } = usePermission();
   const [emails, setEmails] = useState("");
   const [roleId, setRoleId] = useState("");
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [orgRoles, setOrgRoles] = useState<Role[]>([]);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState("");
+  const [organizations, setOrganizations] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [projectId, setProjectId] = useState("");
 
-  const orgRoles = roles.filter(
-    (r) => r.organizationId === organization?.id && !r.isSystemRole
+  const effectiveOrganizationId = user?.organizationId || selectedOrganizationId;
+  const isHrUser = user?.roleSlug === "hr";
+  const selectedOrganization = organizations.find(
+    (org) => org.id === effectiveOrganizationId
   );
+
+  useEffect(() => {
+    console.log("[INVITE_SEND] page mounted", {
+      userId: user?.id,
+      organizationId: user?.organizationId,
+    });
+
+    async function loadRoles() {
+      if (!effectiveOrganizationId) return;
+      console.log("[INVITE_SEND] loading roles", { effectiveOrganizationId });
+      const primaryRes = await fetch(
+        `/api/roles?organizationId=${effectiveOrganizationId}`
+      );
+      const primaryData = await primaryRes.json();
+      let filtered = (primaryData.roles ?? []) as Role[];
+
+      // Fallback: if org mapping is stale/mismatched, still show available roles.
+      if (filtered.length === 0) {
+        const fallbackRes = await fetch("/api/roles");
+        const fallbackData = await fallbackRes.json();
+        filtered = ((fallbackData.roles ?? []) as Role[]).filter(
+          (r) =>
+            r.organizationId === effectiveOrganizationId ||
+            r.isSystem ||
+            r.organizationId == null
+        );
+      }
+
+      setOrgRoles(filtered);
+      console.log("[INVITE_SEND] roles loaded", { count: filtered.length });
+    }
+    async function loadProjects() {
+      if (!effectiveOrganizationId) return;
+      console.log("[INVITE_SEND] loading projects", {
+        effectiveOrganizationId,
+        requesterUserId: user?.id,
+      });
+      const res = await fetch(`/api/projects?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}`);
+      const data = await res.json().catch(() => ({ projects: [] }));
+      const mapped = (data.projects ?? []).map((p: any) => ({ id: p.id, name: p.name }));
+      setProjects(mapped);
+      console.log("[INVITE_SEND] projects loaded", { count: mapped.length, projects: mapped });
+    }
+    async function loadOrganizations() {
+      if (user?.organizationId) return;
+      const res = await fetch("/api/organizations");
+      const data = await res.json();
+      const rows = (data.organizations ?? []) as { id: string; name: string }[];
+      setOrganizations(rows);
+      if (!selectedOrganizationId && rows[0]?.id) {
+        setSelectedOrganizationId(rows[0].id);
+      }
+    }
+    loadOrganizations();
+    loadRoles();
+    loadProjects();
+  }, [effectiveOrganizationId, selectedOrganizationId, user?.organizationId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!effectiveOrganizationId) {
+      toast.error("Please select an organization first");
+      return;
+    }
+    if (isHrUser && !projectId) {
+      toast.error("Please select a project");
+      return;
+    }
     setIsSubmitting(true);
 
     // Parse emails
@@ -46,18 +119,43 @@ export default function SendInvitePage() {
       .map((e) => e.trim())
       .filter((e) => e.length > 0);
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    console.log("Sending invites:", {
+    console.log("[INVITE_SEND] submit clicked", {
+      emailCount: emailList.length,
       emails: emailList,
       roleId,
-      message,
-      organizationId: organization?.id,
+      projectId: projectId || null,
+      organizationId: effectiveOrganizationId,
       invitedBy: user?.id,
+      inviterEmail: user?.email,
     });
 
-    router.push("/invites");
+    const res = await fetch("/api/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        emails: emailList,
+        roleId,
+        message,
+        organizationId: effectiveOrganizationId,
+        invitedBy: user?.id,
+        inviterEmail: user?.email,
+        projectId: projectId || undefined,
+      }),
+    });
+    console.log("[INVITE_SEND] invite API response", { ok: res.ok, status: res.status });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error("[INVITE_SEND] invite API error", err);
+      toast.error(err.error ?? "Failed to send invites");
+      setIsSubmitting(false);
+      return;
+    }
+
+    const okData = await res.json().catch(() => ({}));
+    console.log("[INVITE_SEND] invite API success", okData);
+    const redirectPath = can("invites:view") ? "/invites" : "/members";
+    console.log("[INVITE_SEND] redirecting after success", { redirectPath });
+    router.push(redirectPath);
   };
 
   const emailList = emails
@@ -65,55 +163,11 @@ export default function SendInvitePage() {
     .map((e) => e.trim())
     .filter((e) => e.length > 0);
 
-  const remainingSlots = usage
-    ? usage.members.limit === -1
-      ? Infinity
-      : usage.members.limit - usage.members.used
-    : 0;
-
-  const exceedsLimit =
-    remainingSlots !== Infinity && emailList.length > remainingSlots;
+  const exceedsLimit = false;
 
   return (
     <DashboardLayout>
-      <SubscriptionGate
-        requiredFeature="members"
-        checkLimit
-        fallback={
-          <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="icon" asChild>
-                <Link href="/invites">
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
-              </Button>
-              <PageHeader
-                title="Send Invitations"
-                description="Invite new members to your organization"
-              />
-            </div>
-            <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-amber-800 dark:text-amber-200">
-                      Member Limit Reached
-                    </p>
-                    <p className="text-sm text-amber-700 dark:text-amber-300">
-                      You&apos;ve reached your plan&apos;s member limit. Upgrade your
-                      subscription to invite more team members.
-                    </p>
-                    <Button asChild className="mt-4">
-                      <Link href="/subscription">Upgrade Plan</Link>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        }
-      >
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" asChild type="button">
@@ -142,27 +196,6 @@ export default function SendInvitePage() {
             </PageHeader>
           </div>
 
-          {/* Capacity Warning */}
-          {exceedsLimit && (
-            <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-                  <div>
-                    <p className="font-medium text-amber-800 dark:text-amber-200">
-                      Exceeds Member Limit
-                    </p>
-                    <p className="text-sm text-amber-700 dark:text-amber-300">
-                      You can only invite {remainingSlots} more member
-                      {remainingSlots !== 1 ? "s" : ""} on your current plan.
-                      Reduce the number of emails or upgrade your subscription.
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Email Input */}
             <Card>
@@ -189,10 +222,30 @@ export default function SendInvitePage() {
                   <p className="text-xs text-muted-foreground">
                     {emailList.length} email{emailList.length !== 1 ? "s" : ""}{" "}
                     entered
-                    {remainingSlots !== Infinity && (
-                      <> ({remainingSlots} slots available)</>
-                    )}
                   </p>
+                </div>
+
+                <div className="space-y-2">
+                  {!user?.organizationId && (
+                    <>
+                      <Label>Organization *</Label>
+                      <Select
+                        value={selectedOrganizationId}
+                        onValueChange={setSelectedOrganizationId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select organization" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {organizations.map((org) => (
+                            <SelectItem key={org.id} value={org.id}>
+                              {org.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -204,14 +257,28 @@ export default function SendInvitePage() {
                     <SelectContent>
                       {orgRoles.map((role) => (
                         <SelectItem key={role.id} value={role.id}>
-                          <div className="flex items-center gap-2">
-                            <RoleBadge role={role} size="sm" />
-                            {role.description && (
-                              <span className="text-xs text-muted-foreground">
-                                - {role.description}
-                              </span>
-                            )}
-                          </div>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {orgRoles.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No roles found for selected organization.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="project">Project {isHrUser ? "*" : "(Optional)"}</Label>
+                  <Select value={projectId} onValueChange={setProjectId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select project (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          {project.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -245,12 +312,12 @@ export default function SendInvitePage() {
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                         <span className="text-lg font-bold text-primary">
-                          {organization?.name?.charAt(0) || "O"}
+                          {selectedOrganization?.name?.charAt(0) || "O"}
                         </span>
                       </div>
                       <div>
                         <p className="font-semibold">
-                          {organization?.name || "Your Organization"}
+                          {selectedOrganization?.name || "Your Organization"}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Team Invitation
@@ -263,14 +330,14 @@ export default function SendInvitePage() {
                         <strong>{user?.name || "Someone"}</strong> has invited
                         you to join{" "}
                         <strong>
-                          {organization?.name || "their organization"}
+                          {selectedOrganization?.name || "their organization"}
                         </strong>
                         {roleId && (
                           <>
                             {" "}
                             as a{" "}
                             <strong>
-                              {roles.find((r) => r.id === roleId)?.name ||
+                              {orgRoles.find((r) => r.id === roleId)?.name ||
                                 "team member"}
                             </strong>
                           </>
@@ -300,7 +367,6 @@ export default function SendInvitePage() {
             </Card>
           </div>
         </form>
-      </SubscriptionGate>
     </DashboardLayout>
   );
 }

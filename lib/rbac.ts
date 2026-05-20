@@ -6,6 +6,23 @@ import { permissions, getPermissionById } from '@/data/permissions'
 import { ROLE_SLUGS, MODULES, ACTIONS } from './constants'
 import { getDashboardRouteForRole } from './routes'
 
+function getRoleContext(user: User | null) {
+  if (!user) return null
+  const roleSlug = (user as User & { roleSlug?: string | null }).roleSlug ?? null
+  const rolePermissions = (user as User & { rolePermissions?: string[] }).rolePermissions ?? []
+  return { roleSlug, rolePermissions }
+}
+
+function normalizePermissionCandidates(module: string, action: string) {
+  const moduleAliases = module === 'organizations' ? ['organizations', 'org'] : [module]
+  const candidates: string[] = []
+  for (const m of moduleAliases) {
+    candidates.push(`${m}-${action}`)
+    candidates.push(`${m}:${action}`)
+  }
+  return candidates
+}
+
 // Check if user has a specific permission
 export function hasPermission(
   user: User | null,
@@ -14,14 +31,19 @@ export function hasPermission(
 ): boolean {
   if (!user) return false
 
+  const ctx = getRoleContext(user)
   const role = getRoleById(user.roleId)
-  if (!role) return false
+  const roleSlug = ctx?.roleSlug ?? role?.slug
+  const rolePermissions = ctx?.rolePermissions?.length ? ctx.rolePermissions : (role?.permissions ?? [])
+  if (!roleSlug && rolePermissions.length === 0) return false
 
   // Super admin has all permissions
-  if (role.slug === ROLE_SLUGS.SUPER_ADMIN) return true
+  if (roleSlug === ROLE_SLUGS.SUPER_ADMIN) return true
+  // Org admin has all organization-level permissions
+  if (roleSlug === ROLE_SLUGS.ORG_ADMIN) return true
 
-  const permissionId = `${module}-${action}`
-  return role.permissions.includes(permissionId)
+  const permissionCandidates = normalizePermissionCandidates(module, action)
+  return permissionCandidates.some((p) => rolePermissions.includes(p))
 }
 
 // Check if user has any of the specified permissions
@@ -47,10 +69,11 @@ export function canAccessRoute(user: User | null, route: string): boolean {
   if (!user) return false
 
   const role = getRoleById(user.roleId)
-  if (!role) return false
+  const roleSlug = (user as User & { roleSlug?: string | null }).roleSlug ?? role?.slug
+  if (!roleSlug) return false
 
   // Super admin can access everything
-  if (role.slug === ROLE_SLUGS.SUPER_ADMIN) return true
+  if (roleSlug === ROLE_SLUGS.SUPER_ADMIN) return true
 
   // Check route-specific permissions would go here
   // For now, we just check if user is authenticated
@@ -60,6 +83,9 @@ export function canAccessRoute(user: User | null, route: string): boolean {
 // Get the appropriate dashboard route for a user
 export function getDashboardRoute(user: User | null): string {
   if (!user) return '/login'
+
+  const dbRoleSlug = (user as User & { roleSlug?: string | null }).roleSlug
+  if (dbRoleSlug) return getDashboardRouteForRole(dbRoleSlug)
 
   const role = getRoleById(user.roleId)
   if (!role) return '/login'
@@ -80,7 +106,8 @@ export function getSidebarItems(user: User | null): SidebarItem[] {
   if (!user) return []
 
   const role = getRoleById(user.roleId)
-  if (!role) return []
+  const roleSlug = (user as User & { roleSlug?: string | null }).roleSlug ?? role?.slug
+  if (!roleSlug) return []
 
   const items: SidebarItem[] = []
 
@@ -92,7 +119,7 @@ export function getSidebarItems(user: User | null): SidebarItem[] {
   })
 
   // Super Admin specific items
-  if (role.slug === ROLE_SLUGS.SUPER_ADMIN) {
+  if (roleSlug === ROLE_SLUGS.SUPER_ADMIN) {
     items.push(
       { label: 'Organizations', href: '/organizations', icon: 'Building2', module: 'organizations', action: 'view' },
       { label: 'All Members', href: '/members', icon: 'Users', module: 'members', action: 'view' },
@@ -118,7 +145,12 @@ export function getSidebarItems(user: User | null): SidebarItem[] {
   }
 
   if (hasPermission(user, 'jobs', 'view')) {
-    items.push({ label: 'Jobs', href: '/jobs', icon: 'Briefcase', module: 'jobs', action: 'view' })
+    items.push({ label: 'Projects', href: '/jobs', icon: 'Briefcase', module: 'jobs', action: 'view' })
+  }
+
+  // Keep existing /jobs (Projects) as-is, and add separate HR Job Posts module link.
+  if (roleSlug === ROLE_SLUGS.HR && hasPermission(user, 'jobs', 'view')) {
+    items.push({ label: 'Job Posts', href: '/job-posts', icon: 'Briefcase', module: 'jobs', action: 'view' })
   }
 
   if (hasPermission(user, 'candidates', 'view')) {
@@ -153,13 +185,14 @@ export function canManageOrganization(user: User | null, organizationId: string)
   if (!user) return false
 
   const role = getRoleById(user.roleId)
-  if (!role) return false
+  const roleSlug = (user as User & { roleSlug?: string | null }).roleSlug ?? role?.slug
+  if (!roleSlug) return false
 
   // Super admin can manage any organization
-  if (role.slug === ROLE_SLUGS.SUPER_ADMIN) return true
+  if (roleSlug === ROLE_SLUGS.SUPER_ADMIN) return true
 
   // Org admin can only manage their own organization
-  if (role.slug === ROLE_SLUGS.ORG_ADMIN && user.organizationId === organizationId) {
+  if (roleSlug === ROLE_SLUGS.ORG_ADMIN && user.organizationId === organizationId) {
     return true
   }
 
@@ -169,6 +202,8 @@ export function canManageOrganization(user: User | null, organizationId: string)
 // Check if user is a super admin
 export function isSuperAdmin(user: User | null): boolean {
   if (!user) return false
+  const dbRoleSlug = (user as User & { roleSlug?: string | null }).roleSlug
+  if (dbRoleSlug) return dbRoleSlug === ROLE_SLUGS.SUPER_ADMIN
   const role = getRoleById(user.roleId)
   return role?.slug === ROLE_SLUGS.SUPER_ADMIN
 }
@@ -176,6 +211,8 @@ export function isSuperAdmin(user: User | null): boolean {
 // Check if user is an organization admin
 export function isOrgAdmin(user: User | null): boolean {
   if (!user) return false
+  const dbRoleSlug = (user as User & { roleSlug?: string | null }).roleSlug
+  if (dbRoleSlug) return dbRoleSlug === ROLE_SLUGS.ORG_ADMIN
   const role = getRoleById(user.roleId)
   return role?.slug === ROLE_SLUGS.ORG_ADMIN
 }

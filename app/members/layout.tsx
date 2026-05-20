@@ -9,8 +9,7 @@ export default function MembersLayout({
 }) {
   return (
     <ProtectedRoute
-      requiredPermissions={["members:read"]}
-      requireAll={false}
+      requiredPermissions={[{ module: "members", action: "view" }]}
     >
       {children}
     </ProtectedRoute>

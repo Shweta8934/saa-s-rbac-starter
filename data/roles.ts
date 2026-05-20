@@ -66,9 +66,9 @@ export const roles: Role[] = [
     isSystem: true,
     permissions: [
       'org-view',
-      'members-view', 'members-update',
+      'members-view', 'members-update', 'members-delete',
       'roles-view',
-      'invites-view',
+      'invites-view', 'invites-create',
       'dashboard-view',
       'jobs-view', 'jobs-create', 'jobs-update',
       'candidates-view', 'candidates-create', 'candidates-update', 'candidates-approve', 'candidates-reject',

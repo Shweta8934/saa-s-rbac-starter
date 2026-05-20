@@ -1,0 +1,271 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  active
+  suspended
+  pending
+}
+
+enum OrganizationStatus {
+  active
+  inactive
+  suspended
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  expired
+  cancelled
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+}
+
+enum PaymentMethod {
+  card
+  bank_transfer
+  paypal
+}
+
+enum SubscriptionStatus {
+  active
+  cancelled
+  past_due
+  trialing
+}
+
+model User {
+  id             String      @id @default(cuid())
+  name           String
+  email          String      @unique
+  password       String
+  status         UserStatus  @default(active)
+  organizationId String?
+  roleId         String?
+  joinedAt       DateTime    @default(now())
+  avatar         String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  role           Role?         @relation(fields: [roleId], references: [id])
+  ownedOrganizations Organization[] @relation("OrganizationOwner")
+  invitesSent    Invite[]      @relation("InviteSender")
+  auditLogs      AuditLog[]
+  projectMemberships ProjectMember[]
+}
+
+model Organization {
+  id                 String              @id @default(cuid())
+  name               String
+  slug               String              @unique
+  email              String
+  industry           String
+  status             OrganizationStatus  @default(active)
+  subscriptionPlanId String?
+  ownerId            String
+  logo               String?
+  description        String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  owner              User                @relation("OrganizationOwner", fields: [ownerId], references: [id])
+  users              User[]
+  roles              Role[]
+  invites            Invite[]
+  subscriptions      OrganizationSubscription[]
+  payments           Payment[]
+  activities         Activity[]
+  projects           Project[]
+  jobs               Job[]
+}
+
+model Role {
+  id             String    @id @default(cuid())
+  name           String
+  slug           String
+  description    String
+  organizationId String?
+  isSystem       Boolean   @default(false)
+  permissions    String[]
+  color          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  users          User[]
+
+  @@unique([organizationId, slug])
+}
+
+model Invite {
+  id             String      @id @default(cuid())
+  email          String
+  organizationId String
+  roleId         String
+  projectId      String?
+  token          String      @unique
+  status         InviteStatus @default(pending)
+  invitedBy      String
+  message        String?
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  sender         User         @relation("InviteSender", fields: [invitedBy], references: [id])
+}
+
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  price       Int
+  billingCycle String
+  description String
+  features    String[]
+  limitsJson  Json
+  isPopular   Boolean  @default(false)
+
+  subscriptions OrganizationSubscription[]
+}
+
+model OrganizationSubscription {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  planId             String
+  status             SubscriptionStatus @default(active)
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  plan               SubscriptionPlan   @relation(fields: [planId], references: [id])
+}
+
+model Payment {
+  id             String        @id @default(cuid())
+  organizationId String
+  amount         Int
+  currency       String        @default("usd")
+  status         PaymentStatus
+  method         PaymentMethod
+  description    String
+  invoiceUrl     String?
+  createdAt      DateTime      @default(now())
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+}
+
+model Activity {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  action         String
+  details        String
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  entityType   String
+  entityId     String
+  action       String
+  beforeJson   Json?
+  afterJson    Json?
+  metadataJson Json?
+  createdAt    DateTime @default(now())
+
+  actor        User?    @relation(fields: [actorUserId], references: [id])
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  description    String?
+  status         String   @default("active")
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  members        ProjectMember[]
+
+  @@unique([organizationId, slug])
+}
+
+model ProjectMember {
+  id         String   @id @default(cuid())
+  projectId  String
+  userId     String
+  role       String   @default("member")
+  createdAt  DateTime @default(now())
+
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Job {
+  id             String   @id @default(cuid())
+  organizationId String
+  title          String
+  slug           String
+  description    String?
+  status         String   @default("open")
+  location       String?
+  experience     String?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  applications   JobApplication[]
+
+  @@unique([organizationId, slug])
+}
+
+model JobApplication {
+  id              String   @id @default(cuid())
+  jobId           String
+  organizationId  String
+  fullName        String
+  email           String
+  phone           String?
+  location        String?
+  yearsExperience Int?
+  currentCompany  String?
+  expectedCtc     String?
+  noticePeriod    String?
+  linkedinUrl     String?
+  portfolioUrl    String?
+  coverLetter     String?
+  resumePath      String?
+  status          String   @default("applied")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId, createdAt])
+  @@index([organizationId, createdAt])
+}

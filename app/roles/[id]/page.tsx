@@ -1,7 +1,6 @@
 "use client";
 
-import { use } from "react";
-import { useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermission } from "@/hooks/usePermission";
 import { DashboardLayout } from "@/components/layout";
@@ -12,8 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { roles } from "@/data/roles";
-import { users } from "@/data/users";
 import { permissions as allPermissions } from "@/data/permissions";
 import { 
   ArrowLeft, 
@@ -36,8 +33,40 @@ export default function RoleDetailPage({
   const { can } = usePermission();
   const [isEditing, setIsEditing] = useState(false);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [role, setRole] = useState<any>(null);
+  const [memberCount, setMemberCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  const role = roles.find((r) => r.id === id);
+  useEffect(() => {
+    async function load() {
+      const roleRes = await fetch(`/api/roles/${id}`, { cache: "no-store" });
+      if (!roleRes.ok) {
+        setLoading(false);
+        return;
+      }
+      const roleData = await roleRes.json();
+      setRole(roleData.role);
+      if (roleData.role?.organizationId) {
+        const usersRes = await fetch(
+          `/api/users?organizationId=${roleData.role.organizationId}`,
+          { cache: "no-store" }
+        );
+        const usersData = await usersRes.json();
+        setMemberCount(
+          (usersData.users ?? []).filter((u: any) => u.roleId === roleData.role.id)
+            .length
+        );
+      } else {
+        setMemberCount(0);
+      }
+      setLoading(false);
+    }
+    load();
+  }, [id]);
+
+  if (loading) {
+    return <DashboardLayout><div className="p-6">Loading...</div></DashboardLayout>;
+  }
 
   if (!role) {
     notFound();
@@ -55,7 +84,15 @@ export default function RoleDetailPage({
   };
 
   const handleSave = () => {
-    console.log("Saving permissions:", selectedPermissions);
+    fetch(`/api/roles/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ permissions: selectedPermissions }),
+    }).then(async (res) => {
+      if (!res.ok) return;
+      const data = await res.json();
+      setRole(data.role);
+    });
     setIsEditing(false);
   };
 
@@ -66,9 +103,6 @@ export default function RoleDetailPage({
         : [...prev, permissionId]
     );
   };
-
-  // Count members with this role
-  const memberCount = users.filter((u) => u.roleId === role.id).length;
 
   // Group permissions by category
   const permissionsByCategory = allPermissions.reduce((acc, perm) => {
@@ -95,7 +129,7 @@ export default function RoleDetailPage({
             description={role.description || "Manage role permissions"}
           >
             <div className="flex items-center gap-2">
-              {!role.isSystemRole && can("roles:update") && (
+              {!role.isSystem && can("roles:update") && (
                 <>
                   {isEditing ? (
                     <>
@@ -131,7 +165,7 @@ export default function RoleDetailPage({
             <CardContent>
               <div className="flex items-center gap-2">
                 <RoleBadge role={role} />
-                {role.isSystemRole && (
+                {role.isSystem && (
                   <Badge variant="secondary" className="gap-1">
                     <Lock className="h-3 w-3" />
                     System
@@ -174,7 +208,7 @@ export default function RoleDetailPage({
         </div>
 
         {/* System Role Warning */}
-        {role.isSystemRole && (
+        {role.isSystem && (
           <Card className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20">
             <CardContent className="pt-6">
               <div className="flex items-start gap-3">
@@ -229,12 +263,12 @@ export default function RoleDetailPage({
                                     ? "bg-primary/5 border-primary/20"
                                     : "bg-muted/30 border-transparent"
                                 } ${
-                                  isEditing && !role.isSystemRole
+                                  isEditing && !role.isSystem
                                     ? "cursor-pointer hover:bg-muted"
                                     : ""
                                 }`}
                             >
-                              {isEditing && !role.isSystemRole ? (
+                              {isEditing && !role.isSystem ? (
                                 <Checkbox
                                   checked={hasPermission}
                                   onClick={(e) => e.stopPropagation()}

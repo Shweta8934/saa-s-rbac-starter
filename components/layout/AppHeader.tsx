@@ -3,8 +3,7 @@
 import { useAuth } from '@/hooks/useAuth'
 import { usePermission } from '@/hooks/usePermission'
 import { useRouter } from 'next/navigation'
-import { getRoleById } from '@/data/roles'
-import { getOrganizationById } from '@/data/organizations'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -25,8 +24,23 @@ export function AppHeader() {
 
   if (!user) return null
 
-  const role = getRoleById(user.roleId)
-  const organization = user.organizationId ? getOrganizationById(user.organizationId) : null
+  const [organizationName, setOrganizationName] = useState<string | null>(null)
+  const roleName = (user as any).roleSlug?.replace('-', ' ') || 'Member'
+
+  useEffect(() => {
+    async function loadOrg() {
+      if (!user.organizationId) {
+        setOrganizationName(null)
+        return
+      }
+      const res = await fetch('/api/organizations', { cache: 'no-store' })
+      if (!res.ok) return
+      const data = await res.json()
+      const org = (data.organizations ?? []).find((o: any) => o.id === user.organizationId)
+      setOrganizationName(org?.name ?? null)
+    }
+    loadOrg()
+  }, [user.organizationId])
 
   const handleLogout = () => {
     logout()
@@ -44,10 +58,10 @@ export function AppHeader() {
     <header className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
       {/* Left side - Organization info */}
       <div className="flex items-center gap-4">
-        {organization && (
+        {organizationName && (
           <div className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{organization.name}</span>
+            <span className="text-sm font-medium">{organizationName}</span>
           </div>
         )}
         {isSuperAdmin && (
@@ -78,7 +92,7 @@ export function AppHeader() {
               </Avatar>
               <div className="hidden text-left md:block">
                 <p className="text-sm font-medium">{user.name}</p>
-                <p className="text-xs text-muted-foreground">{role?.name || 'Member'}</p>
+                <p className="text-xs text-muted-foreground">{roleName}</p>
               </div>
             </Button>
           </DropdownMenuTrigger>
@@ -90,7 +104,7 @@ export function AppHeader() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push('/settings')}>
+            <DropdownMenuItem onClick={() => router.push('/profile')}>
               <User className="mr-2 h-4 w-4" />
               Profile
             </DropdownMenuItem>

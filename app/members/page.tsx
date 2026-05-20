@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermission } from "@/hooks/usePermission";
 import { DashboardLayout } from "@/components/layout";
 import { PageHeader, EmptyState } from "@/components/common";
-import { RoleBadge, PermissionGate } from "@/components/rbac";
+import { RoleBadge } from "@/components/rbac";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,28 +39,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { users } from "@/data/users";
-import { roles } from "@/data/roles";
 import { User } from "@/types";
 import { Search, MoreHorizontal, UserPlus, Mail, Shield, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 
+type MemberWithProjects = User & {
+  projectMemberships?: Array<{ project?: { id: string; name: string } | null }>;
+};
+
 export default function MembersPage() {
-  const { user, organization } = useAuth();
+  const { user } = useAuth();
   const { can } = usePermission();
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState<MemberWithProjects[]>([]);
+  const [allRoles, setAllRoles] = useState<any[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const effectiveOrganizationId = user?.organizationId || selectedOrgId;
+
+  useEffect(() => {
+    async function loadForSuperAdmin() {
+      if (user?.organizationId) return;
+      const orgRes = await fetch("/api/organizations", { cache: "no-store" });
+      const orgData = await orgRes.json();
+      const firstOrgId = orgData.organizations?.[0]?.id;
+      if (firstOrgId && !selectedOrgId) setSelectedOrgId(firstOrgId);
+    }
+    loadForSuperAdmin();
+  }, [user?.organizationId, selectedOrgId]);
+
+  useEffect(() => {
+    async function loadData() {
+      if (!effectiveOrganizationId) return;
+      const [usersRes, rolesRes] = await Promise.all([
+        fetch(`/api/users?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}`, { cache: "no-store" }),
+        fetch(`/api/roles?organizationId=${effectiveOrganizationId}`, { cache: "no-store" }),
+      ]);
+      const usersData = await usersRes.json();
+      const rolesData = await rolesRes.json();
+      setAllUsers(usersData.users ?? []);
+      setAllRoles(rolesData.roles ?? []);
+    }
+    loadData();
+    const onFocus = () => loadData();
+    window.addEventListener("focus", onFocus);
+    const interval = window.setInterval(loadData, 15000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.clearInterval(interval);
+    };
+  }, [effectiveOrganizationId, user?.id]);
 
   // Filter members by organization
-  const orgMembers = users.filter(
-    (u) => u.organizationId === organization?.id
-  );
+  const orgMembers = allUsers.filter((u) => u.organizationId === effectiveOrganizationId);
 
   // Apply search and role filters
-  const filteredMembers = orgMembers.filter((member) => {
+  const filteredMembers = orgMembers.filter((member: MemberWithProjects) => {
     const matchesSearch =
       member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       member.email.toLowerCase().includes(searchQuery.toLowerCase());
@@ -68,7 +105,7 @@ export default function MembersPage() {
     return matchesSearch && matchesRole;
   });
 
-  const orgRoles = roles.filter((r) => r.organizationId === organization?.id);
+  const orgRoles = allRoles.filter((r) => r.organizationId === effectiveOrganizationId || r.isSystem);
 
   const handleChangeRole = (memberId: string, newRoleId: string) => {
     console.log("Changing role for member", memberId, "to", newRoleId);
@@ -89,14 +126,22 @@ export default function MembersPage() {
           title="Team Members"
           description="Manage your organization's team members and their roles"
         >
-          <PermissionGate permissions={["invites:create"]}>
+          {can("invites:create") && (
             <Button asChild>
-              <Link href="/invites/send">
+              <Link
+                href="/invites/send"
+                onClick={() => {
+                  console.log("[MEMBERS] Invite Member clicked", {
+                    userId: user?.id,
+                    organizationId: effectiveOrganizationId,
+                  });
+                }}
+              >
                 <UserPlus className="mr-2 h-4 w-4" />
                 Invite Member
               </Link>
             </Button>
-          </PermissionGate>
+          )}
         </PageHeader>
 
         <Card>
@@ -146,7 +191,15 @@ export default function MembersPage() {
                 action={
                   can("invites:create") ? (
                     <Button asChild>
-                      <Link href="/invites/send">
+                      <Link
+                        href="/invites/send"
+                        onClick={() => {
+                          console.log("[MEMBERS] Empty-state Invite Member clicked", {
+                            userId: user?.id,
+                            organizationId: effectiveOrganizationId,
+                          });
+                        }}
+                      >
                         <UserPlus className="mr-2 h-4 w-4" />
                         Invite Member
                       </Link>
@@ -161,6 +214,7 @@ export default function MembersPage() {
                     <TableRow>
                       <TableHead>Member</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Projects</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead className="w-[70px]"></TableHead>
@@ -168,7 +222,7 @@ export default function MembersPage() {
                   </TableHeader>
                   <TableBody>
                     {filteredMembers.map((member) => {
-                      const memberRole = roles.find(
+                      const memberRole = allRoles.find(
                         (r) => r.id === member.roleId
                       );
                       const isCurrentUser = member.id === user?.id;
@@ -206,6 +260,12 @@ export default function MembersPage() {
                           </TableCell>
                           <TableCell>
                             {memberRole && <RoleBadge role={memberRole} />}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {(member.projectMemberships ?? [])
+                              .map((m) => m.project?.name)
+                              .filter(Boolean)
+                              .join(", ") || "No project"}
                           </TableCell>
                           <TableCell>
                             <span

@@ -1,18 +1,13 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
-import { useSubscription } from '@/hooks/useSubscription'
 import { PageHeader } from '@/components/common'
 import { DashboardCard, UsageCard } from '@/components/cards'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { PlanBadge, StatusBadge } from '@/components/rbac'
-import { getOrganizationById } from '@/data/organizations'
-import { getUsersByOrganization } from '@/data/users'
-import { getRolesByOrganization } from '@/data/roles'
-import { getPendingInvitesByOrganization } from '@/data/invites'
-import { getActivitiesByOrganization } from '@/data/activity'
 import { 
   Users, 
   Shield, 
@@ -27,17 +22,95 @@ import { format } from 'date-fns'
 
 export default function OrganizationDashboardPage() {
   const { user } = useAuth()
-  const { currentPlan, usage } = useSubscription()
+  const [organization, setOrganization] = useState<any>(null)
+  const [members, setMembers] = useState<any[]>([])
+  const [roles, setRoles] = useState<any[]>([])
+  const [invites, setInvites] = useState<any[]>([])
+  const [activities, setActivities] = useState<any[]>([])
+  const [currentPlan, setCurrentPlan] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const orgId = user?.organizationId
 
-  if (!user?.organizationId) return null
+  useEffect(() => {
+    async function loadDashboard() {
+      if (!orgId) {
+        setError('No organization assigned to this user.')
+        setIsLoading(false)
+        return
+      }
+      try {
+        setIsLoading(true)
+        setError(null)
+        const [orgRes, membersRes, rolesRes, invitesRes, activitiesRes, subRes] =
+          await Promise.all([
+            fetch('/api/organizations'),
+            fetch(`/api/users?organizationId=${orgId}`),
+            fetch(`/api/roles?organizationId=${orgId}`),
+            fetch(`/api/invites?organizationId=${orgId}`),
+            fetch(`/api/activities?organizationId=${orgId}&limit=5`),
+            fetch(`/api/subscriptions/current?organizationId=${orgId}`),
+          ])
 
-  const organization = getOrganizationById(user.organizationId)
-  const members = getUsersByOrganization(user.organizationId)
-  const roles = getRolesByOrganization(user.organizationId)
-  const pendingInvites = getPendingInvitesByOrganization(user.organizationId)
-  const activities = getActivitiesByOrganization(user.organizationId).slice(0, 5)
+        const orgData = await orgRes.json()
+        const membersData = await membersRes.json()
+        const rolesData = await rolesRes.json()
+        const invitesData = await invitesRes.json()
+        const activitiesData = await activitiesRes.json()
+        const subData = await subRes.json()
 
-  if (!organization) return null
+        const allOrganizations = orgData.organizations ?? []
+        const resolvedOrganization =
+          allOrganizations.find((o: any) => o.id === orgId) ?? allOrganizations[0] ?? null
+
+        if (!resolvedOrganization) {
+          setError('No organizations found in database.')
+          setOrganization(null)
+        } else {
+          setOrganization(resolvedOrganization)
+        }
+        setMembers(membersData.users ?? [])
+        setRoles((rolesData.roles ?? []).filter((r: any) => r.organizationId === orgId))
+        setInvites(invitesData.invites ?? [])
+        setActivities(activitiesData.activities ?? [])
+        setCurrentPlan(subData.plan ?? null)
+      } catch (e) {
+        console.error('[ORG_DASHBOARD][LOAD_FAIL]', e)
+        setError('Failed to load dashboard data.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadDashboard()
+  }, [orgId])
+
+  const pendingInvites = useMemo(
+    () => invites.filter((i) => i.status === 'pending'),
+    [invites]
+  )
+  const usage = useMemo(
+    () => ({
+      membersUsed: members.length,
+      membersLimit: currentPlan?.limits?.members ?? -1,
+      rolesUsed: roles.length,
+      rolesLimit: currentPlan?.limits?.roles ?? -1,
+      invitesUsedThisMonth: pendingInvites.length,
+      invitesLimit: currentPlan?.limits?.invitesPerMonth ?? -1,
+    }),
+    [currentPlan, members.length, roles.length, pendingInvites.length]
+  )
+
+  if (isLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading dashboard...</div>
+  }
+
+  if (error) {
+    return <div className="p-6 text-sm text-destructive">{error}</div>
+  }
+
+  if (!organization) {
+    return <div className="p-6 text-sm text-muted-foreground">No organization data available.</div>
+  }
 
   return (
     <div className="space-y-6">
@@ -45,7 +118,7 @@ export default function OrganizationDashboardPage() {
         title={`${organization.name} Dashboard`}
         description="Manage your organization settings, members, and roles"
       >
-        <Link href="/invites/create">
+        <Link href="/invites/send">
           <Button>
             <UserPlus className="mr-2 h-4 w-4" />
             Invite Member
@@ -136,7 +209,7 @@ export default function OrganizationDashboardPage() {
             <CardDescription>Common management tasks</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
-            <Link href="/invites/create">
+            <Link href="/invites/send">
               <Button variant="outline" className="w-full justify-start">
                 <UserPlus className="mr-2 h-4 w-4" />
                 Invite New Member
@@ -178,9 +251,9 @@ export default function OrganizationDashboardPage() {
                       <TrendingUp className="h-4 w-4" />
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm">{activity.description}</p>
+                      <p className="text-sm">{activity.details}</p>
                       <p className="text-xs text-muted-foreground">
-                        {activity.userName} • {format(new Date(activity.createdAt), 'MMM d, h:mm a')}
+                        {(activity.userId || 'system')} • {format(new Date(activity.createdAt), 'MMM d, h:mm a')}
                       </p>
                     </div>
                   </div>

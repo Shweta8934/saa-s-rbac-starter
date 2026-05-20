@@ -32,8 +32,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { roles } from "@/data/roles";
-import { users } from "@/data/users";
 import { permissions as allPermissions } from "@/data/permissions";
 import { Role } from "@/types";
 import { 
@@ -48,24 +46,39 @@ import {
   Unlock
 } from "lucide-react";
 import Link from "next/link";
-import { getEntity, initializeDynamicData } from "@/lib/dynamic-data";
+import { User } from "@/types";
 
 export default function RolesPage() {
-  const { organization } = useAuth();
+  const { user } = useAuth();
   const { can } = usePermission();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [allRoles, setAllRoles] = useState<Role[]>(roles as unknown as Role[]);
+  const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState("");
+  const effectiveOrganizationId = user?.organizationId || selectedOrgId;
 
   useEffect(() => {
-    initializeDynamicData();
-    setAllRoles(getEntity<Role>("roles"));
-  }, []);
+    async function load() {
+      if (!effectiveOrganizationId) return;
+      const rolesUrl = `/api/roles?organizationId=${effectiveOrganizationId}`;
+      const usersUrl = `/api/users?organizationId=${effectiveOrganizationId}`;
+      const [rolesRes, usersRes] = await Promise.all([
+        fetch(rolesUrl, { cache: "no-store" }),
+        fetch(usersUrl, { cache: "no-store" }),
+      ]);
+      const rolesData = await rolesRes.json();
+      const usersData = await usersRes.json();
+      setAllRoles(rolesData.roles ?? []);
+      setAllUsers(usersData.users ?? []);
+    }
+    load();
+  }, [effectiveOrganizationId]);
 
   // Filter roles by organization
   const orgRoles = allRoles.filter(
-    (r) => r.organizationId === organization?.id || r.isSystem
+    (r) => r.organizationId === effectiveOrganizationId || r.isSystem || r.organizationId == null
   );
 
   // Apply search filter
@@ -76,11 +89,14 @@ export default function RolesPage() {
 
   // Count members per role
   const getMemberCount = (roleId: string) => {
-    return users.filter((u) => u.roleId === roleId).length;
+    return allUsers.filter((u) => u.roleId === roleId).length;
   };
 
-  const handleDeleteRole = (roleId: string) => {
-    console.log("Deleting role", roleId);
+  const handleDeleteRole = async (roleId: string) => {
+    await fetch(`/api/roles/${roleId}?actorUserId=${user?.id ?? ""}`, {
+      method: "DELETE",
+    });
+    setAllRoles((prev) => prev.filter((r) => r.id !== roleId));
     setIsDeleteDialogOpen(false);
     setSelectedRole(null);
   };
