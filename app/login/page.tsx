@@ -40,7 +40,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormData) => {
     setError(null)
     const result = await login(data)
-    
+
     if (result.success) {
       const storedUser = localStorage.getItem('saas_rbac_user')
       if (storedUser) {
@@ -83,7 +83,7 @@ export default function LoginPage() {
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               )}
-              
+
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
@@ -128,7 +128,7 @@ export default function LoginPage() {
               </div>
             </CardContent>
             <CardFooter className="flex flex-col space-y-4">
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button type="submit" className="w-full mt-3" disabled={isLoading}>
                 {isLoading ? (
                   <Spinner className="mr-2 h-4 w-4" />
                 ) : (
@@ -136,12 +136,12 @@ export default function LoginPage() {
                 )}
                 Sign In
               </Button>
-              <p className="text-sm text-muted-foreground text-center">
+              {/* <p className="text-sm text-muted-foreground text-center">
                 {"Don't have an account? "}
                 <Link href="/signup" className="text-primary hover:underline">
                   Sign up
                 </Link>
-              </p>
+              </p> */}
             </CardFooter>
           </form>
         </Card>
