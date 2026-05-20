@@ -8,10 +8,7 @@ export default function PaymentsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <ProtectedRoute
-      requiredPermissions={["billing:read"]}
-      requireAll={false}
-    >
+    <ProtectedRoute requiredPermissions={[{ module: "billing", action: "view" }]}>
       {children}
     </ProtectedRoute>
   );

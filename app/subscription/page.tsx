@@ -6,7 +6,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { DashboardLayout } from "@/components/layout";
 import { PageHeader } from "@/components/common";
 import { SubscriptionCard } from "@/components/cards";
-import { PermissionGate, PlanBadge } from "@/components/rbac";
+import { PlanBadge } from "@/components/rbac";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +30,7 @@ type DbPayment = {
 export default function SubscriptionPage() {
   const { organization, user } = useAuth();
   const { can } = usePermission();
+  const canUpdateBilling = can("billing:update") || user?.roleSlug === "billing";
   const [isUpgradeDialogOpen, setIsUpgradeDialogOpen] = useState(false);
   const [isSuccessDialogOpen, setIsSuccessDialogOpen] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -256,16 +257,16 @@ export default function SubscriptionPage() {
                       </ul>
                     </CardContent>
                     <CardFooter>
-                      <PermissionGate permissions={["billing:update"]}>
-                        {isCurrentPlan ? (
+                      {canUpdateBilling ? (
+                        isCurrentPlan ? (
                           <Button className="w-full" disabled>Current Plan</Button>
                         ) : (
                           <Button className="w-full" variant={isUpgrade ? "default" : "outline"} onClick={() => handleUpgrade(tier)}>
                             {isUpgrade ? "Upgrade" : "Downgrade"}
                             <ArrowRight className="ml-2 h-4 w-4" />
                           </Button>
-                        )}
-                      </PermissionGate>
+                        )
+                      ) : null}
                     </CardFooter>
                   </Card>
                 );
@@ -314,14 +315,12 @@ export default function SubscriptionPage() {
           </CardFooter>
         </Card>
 
-        <PermissionGate permissions={["billing:update"]}>
-          {planTier !== "free" && (
+        {canUpdateBilling && planTier !== "free" && (
             <Card className="border-destructive/50">
               <CardHeader><CardTitle className="text-destructive">Danger Zone</CardTitle><CardDescription>Cancel your subscription.</CardDescription></CardHeader>
               <CardContent><Button variant="destructive" onClick={() => setIsCancelDialogOpen(true)}>Cancel Subscription</Button></CardContent>
             </Card>
-          )}
-        </PermissionGate>
+        )}
       </div>
 
       <Dialog open={isUpgradeDialogOpen} onOpenChange={setIsUpgradeDialogOpen}>

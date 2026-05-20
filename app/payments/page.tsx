@@ -32,6 +32,9 @@ export default function PaymentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PaymentStatus>("all");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [newAmount, setNewAmount] = useState("");
+  const [newMethod, setNewMethod] = useState<"card" | "bank_transfer" | "paypal">("card");
+  const [newDescription, setNewDescription] = useState("");
   const effectiveOrganizationId = organization?.id || user?.organizationId || selectedOrgId || "";
 
   useEffect(() => {
@@ -43,6 +46,37 @@ export default function PaymentsPage() {
     }
     load();
   }, [effectiveOrganizationId]);
+
+  async function reloadPayments() {
+    if (!effectiveOrganizationId) return;
+    const res = await fetch(`/api/payments?organizationId=${effectiveOrganizationId}`, { cache: "no-store" });
+    const data = await res.json();
+    setPayments(data.payments ?? []);
+  }
+
+  async function addPayment() {
+    if (!effectiveOrganizationId || !newAmount || !newDescription.trim()) return;
+    await fetch("/api/payments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        organizationId: effectiveOrganizationId,
+        amount: Math.round(Number(newAmount) * 100),
+        method: newMethod,
+        status: "succeeded",
+        description: newDescription.trim(),
+        currency: "usd",
+      }),
+    });
+    setNewAmount("");
+    setNewDescription("");
+    await reloadPayments();
+  }
+
+  async function deletePayment(id: string) {
+    await fetch(`/api/payments/${id}`, { method: "DELETE" });
+    await reloadPayments();
+  }
 
   useEffect(() => {
     async function loadOrganizationsForSuperAdmin() {
@@ -131,6 +165,19 @@ export default function PaymentsPage() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Receipt className="h-5 w-5" />All Transactions</CardTitle></CardHeader>
           <CardContent>
+            <div className="mb-6 grid gap-3 md:grid-cols-4">
+              <Input placeholder="Amount (USD)" type="number" value={newAmount} onChange={(e) => setNewAmount(e.target.value)} />
+              <Select value={newMethod} onValueChange={(v) => setNewMethod(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="card">Card</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="paypal">Paypal</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input placeholder="Description" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} />
+              <Button onClick={addPayment}>Add Payment</Button>
+            </div>
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -162,7 +209,7 @@ export default function PaymentsPage() {
                       <TableHead>Amount</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Method</TableHead>
-                      <TableHead className="w-[70px]"></TableHead>
+                      <TableHead className="w-[140px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -179,14 +226,19 @@ export default function PaymentsPage() {
                         <TableCell><Badge variant={getStatusBadgeVariant(payment.status)}>{payment.status}</Badge></TableCell>
                         <TableCell className="text-muted-foreground">{payment.method === "card" ? "Card" : payment.method}</TableCell>
                         <TableCell>
-                          {payment.invoiceUrl && (
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={payment.invoiceUrl} target="_blank" rel="noopener noreferrer">
-                                <Download className="h-4 w-4" />
-                                <span className="sr-only">Download Invoice</span>
-                              </a>
+                          <div className="flex gap-2">
+                            {payment.invoiceUrl && (
+                              <Button variant="ghost" size="icon" asChild>
+                                <a href={payment.invoiceUrl} target="_blank" rel="noopener noreferrer">
+                                  <Download className="h-4 w-4" />
+                                  <span className="sr-only">Download Invoice</span>
+                                </a>
+                              </Button>
+                            )}
+                            <Button variant="destructive" size="sm" onClick={() => deletePayment(payment.id)}>
+                              Delete
                             </Button>
-                          )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}

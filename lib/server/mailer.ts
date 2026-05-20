@@ -46,3 +46,20 @@ export async function sendInviteEmail(params: InviteMailParams) {
 
   return { sent: true }
 }
+
+export async function sendGenericEmail(params: { to: string; subject: string; html: string }) {
+  const transporter = getTransporter()
+  if (!transporter) {
+    console.warn('SMTP not configured; skipping email send for', params.to)
+    return { sent: false, reason: 'SMTP_NOT_CONFIGURED' }
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: params.to,
+    subject: params.subject,
+    html: params.html,
+  })
+
+  return { sent: true }
+}

@@ -111,10 +111,12 @@ export function getSidebarItems(user: User | null): SidebarItem[] {
 
   const items: SidebarItem[] = []
 
+  const dashboardHref = getDashboardRoute(user)
+
   // Dashboard - always shown
   items.push({
     label: 'Dashboard',
-    href: getDashboardRoute(user),
+    href: dashboardHref,
     icon: 'LayoutDashboard',
   })
 
@@ -161,7 +163,7 @@ export function getSidebarItems(user: User | null): SidebarItem[] {
     items.push({ label: 'Interviews', href: '/interviews', icon: 'Calendar', module: 'interviews', action: 'view' })
   }
 
-  if (hasPermission(user, 'billing', 'view')) {
+  if (hasPermission(user, 'billing', 'view') && dashboardHref !== '/billing/dashboard') {
     items.push({ label: 'Billing', href: '/billing/dashboard', icon: 'CreditCard', module: 'billing', action: 'view' })
   }
 
