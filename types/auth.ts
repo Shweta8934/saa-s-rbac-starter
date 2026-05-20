@@ -1,0 +1,43 @@
+// Authentication Types
+
+export type UserStatus = 'active' | 'pending' | 'suspended'
+
+export interface User {
+  id: string
+  name: string
+  email: string
+  password: string // In real app, this would be hashed
+  organizationId: string | null
+  roleId: string
+  status: UserStatus
+  avatar?: string
+  joinedAt: string
+  lastLoginAt?: string
+}
+
+export interface AuthState {
+  user: User | null
+  isAuthenticated: boolean
+  isLoading: boolean
+}
+
+export interface LoginCredentials {
+  email: string
+  password: string
+}
+
+export interface SignupData {
+  name: string
+  email: string
+  password: string
+  organizationName?: string
+}
+
+export interface AuthContextType {
+  user: User | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>
+  logout: () => void
+  signup: (data: SignupData) => Promise<{ success: boolean; error?: string }>
+}

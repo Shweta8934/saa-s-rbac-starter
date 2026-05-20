@@ -1,0 +1,344 @@
+"use client";
+
+import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { usePermission } from "@/hooks/usePermission";
+import { DashboardLayout } from "@/components/layout";
+import { PageHeader, EmptyState } from "@/components/common";
+import { RoleBadge, PermissionGate } from "@/components/rbac";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { users } from "@/data/users";
+import { roles } from "@/data/roles";
+import { User } from "@/types";
+import { Search, MoreHorizontal, UserPlus, Mail, Shield, Trash2, Users } from "lucide-react";
+import Link from "next/link";
+
+export default function MembersPage() {
+  const { user, organization } = useAuth();
+  const { can } = usePermission();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [selectedMember, setSelectedMember] = useState<User | null>(null);
+  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+
+  // Filter members by organization
+  const orgMembers = users.filter(
+    (u) => u.organizationId === organization?.id
+  );
+
+  // Apply search and role filters
+  const filteredMembers = orgMembers.filter((member) => {
+    const matchesSearch =
+      member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      member.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === "all" || member.roleId === roleFilter;
+    return matchesSearch && matchesRole;
+  });
+
+  const orgRoles = roles.filter((r) => r.organizationId === organization?.id);
+
+  const handleChangeRole = (memberId: string, newRoleId: string) => {
+    console.log("Changing role for member", memberId, "to", newRoleId);
+    setIsRoleDialogOpen(false);
+    setSelectedMember(null);
+  };
+
+  const handleRemoveMember = (memberId: string) => {
+    console.log("Removing member", memberId);
+    setIsDeleteDialogOpen(false);
+    setSelectedMember(null);
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        <PageHeader
+          title="Team Members"
+          description="Manage your organization's team members and their roles"
+        >
+          <PermissionGate permissions={["invites:create"]}>
+            <Button asChild>
+              <Link href="/invites/send">
+                <UserPlus className="mr-2 h-4 w-4" />
+                Invite Member
+              </Link>
+            </Button>
+          </PermissionGate>
+        </PageHeader>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              All Members ({filteredMembers.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-4 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name or email..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="Filter by role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  {orgRoles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Members Table */}
+            {filteredMembers.length === 0 ? (
+              <EmptyState
+                icon={Users}
+                title="No members found"
+                description={
+                  searchQuery || roleFilter !== "all"
+                    ? "Try adjusting your search or filters"
+                    : "Invite team members to get started"
+                }
+                action={
+                  can("invites:create") ? (
+                    <Button asChild>
+                      <Link href="/invites/send">
+                        <UserPlus className="mr-2 h-4 w-4" />
+                        Invite Member
+                      </Link>
+                    </Button>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Member</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Joined</TableHead>
+                      <TableHead className="w-[70px]"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMembers.map((member) => {
+                      const memberRole = roles.find(
+                        (r) => r.id === member.roleId
+                      );
+                      const isCurrentUser = member.id === user?.id;
+
+                      return (
+                        <TableRow key={member.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-9 w-9">
+                                <AvatarImage
+                                  src={member.avatar}
+                                  alt={member.name}
+                                />
+                                <AvatarFallback>
+                                  {member.name
+                                    .split(" ")
+                                    .map((n) => n[0])
+                                    .join("")}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium">
+                                  {member.name}
+                                  {isCurrentUser && (
+                                    <span className="ml-2 text-xs text-muted-foreground">
+                                      (You)
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  {member.email}
+                                </p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {memberRole && <RoleBadge role={memberRole} />}
+                          </TableCell>
+                          <TableCell>
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                member.status === "active"
+                                  ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                  : member.status === "pending"
+                                  ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                  : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+                              }`}
+                            >
+                              {member.status}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {new Date(member.createdAt).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell>
+                            {!isCurrentUser && can("members:update") && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                    <span className="sr-only">Actions</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setSelectedMember(member);
+                                      setIsRoleDialogOpen(true);
+                                    }}
+                                  >
+                                    <Shield className="mr-2 h-4 w-4" />
+                                    Change Role
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <Mail className="mr-2 h-4 w-4" />
+                                    Send Message
+                                  </DropdownMenuItem>
+                                  {can("members:delete") && (
+                                    <DropdownMenuItem
+                                      className="text-destructive"
+                                      onClick={() => {
+                                        setSelectedMember(member);
+                                        setIsDeleteDialogOpen(true);
+                                      }}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Remove Member
+                                    </DropdownMenuItem>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Change Role Dialog */}
+      <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Member Role</DialogTitle>
+            <DialogDescription>
+              Select a new role for {selectedMember?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Select
+              defaultValue={selectedMember?.roleId}
+              onValueChange={(value) =>
+                selectedMember && handleChangeRole(selectedMember.id, value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a role" />
+              </SelectTrigger>
+              <SelectContent>
+                {orgRoles.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    <div className="flex flex-col">
+                      <span>{role.name}</span>
+                      {role.description && (
+                        <span className="text-xs text-muted-foreground">
+                          {role.description}
+                        </span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Member Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Member</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove {selectedMember?.name} from the
+              organization? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                selectedMember && handleRemoveMember(selectedMember.id)
+              }
+            >
+              Remove Member
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DashboardLayout>
+  );
+}
