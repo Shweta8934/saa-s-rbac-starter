@@ -42,4 +42,5 @@ export interface AuthContextType {
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; error?: string }>
   logout: () => void
   signup: (data: SignupData) => Promise<{ success: boolean; error?: string }>
+  updateUser: (data: Partial<User>) => void
 }

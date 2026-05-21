@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/server/prisma'
 
 const schema = z.object({
@@ -16,11 +17,22 @@ export async function POST(req: Request) {
     include: { role: true },
   })
 
-  if (!user || user.password !== inputPassword) {
+  let isPasswordValid = false;
+  if (user) {
+    // Try to compare using bcrypt first
+    isPasswordValid = await bcrypt.compare(inputPassword, user.password).catch(() => false);
+    
+    // Fallback for plain-text passwords (useful if you have seeded users with unhashed passwords)
+    if (!isPasswordValid && user.password === inputPassword) {
+      isPasswordValid = true;
+    }
+  }
+
+  if (!user || !isPasswordValid) {
     return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
   }
-  if (user.status === 'suspended') {
-    return NextResponse.json({ error: 'Your account has been suspended' }, { status: 403 })
+  if (user.status !== 'active') {
+    return NextResponse.json({ error: 'Your account is not active. Please contact administration.' }, { status: 403 })
   }
 
   return NextResponse.json({

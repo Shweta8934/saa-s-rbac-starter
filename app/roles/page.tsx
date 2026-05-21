@@ -52,44 +52,35 @@ export default function RolesPage() {
   const { user } = useAuth();
   const { can } = usePermission();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [selectedRole, setSelectedRole] = useState<any | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [allRoles, setAllRoles] = useState<Role[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [allRoles, setAllRoles] = useState<any[]>([]);
+  const [totalRoles, setTotalRoles] = useState(0);
+  const [page, setPage] = useState(1);
+  const limit = 5;
   const [selectedOrgId, setSelectedOrgId] = useState("");
-  const effectiveOrganizationId = user?.organizationId || selectedOrgId;
+  const isSuperAdmin = user?.roleSlug === 'super-admin';
+  const effectiveOrganizationId = isSuperAdmin ? "" : (user?.organizationId || selectedOrgId);
 
   useEffect(() => {
     async function load() {
-      if (!effectiveOrganizationId) return;
-      const rolesUrl = `/api/roles?organizationId=${effectiveOrganizationId}`;
-      const usersUrl = `/api/users?organizationId=${effectiveOrganizationId}`;
-      const [rolesRes, usersRes] = await Promise.all([
-        fetch(rolesUrl, { cache: "no-store" }),
-        fetch(usersUrl, { cache: "no-store" }),
-      ]);
+      if (!isSuperAdmin && !effectiveOrganizationId) return;
+      
+      let rolesUrl = effectiveOrganizationId ? `/api/roles?organizationId=${effectiveOrganizationId}` : `/api/roles?all=1`;
+      rolesUrl += `&page=${page}&limit=${limit}`;
+      if (searchQuery) rolesUrl += `&search=${encodeURIComponent(searchQuery)}`;
+      
+      const rolesRes = await fetch(rolesUrl, { cache: "no-store" });
       const rolesData = await rolesRes.json();
-      const usersData = await usersRes.json();
       setAllRoles(rolesData.roles ?? []);
-      setAllUsers(usersData.users ?? []);
+      setTotalRoles(rolesData.totalCount ?? 0);
     }
     load();
-  }, [effectiveOrganizationId]);
+  }, [effectiveOrganizationId, isSuperAdmin, page, searchQuery]);
 
-  // Filter roles by organization
-  const orgRoles = allRoles.filter(
-    (r) => r.organizationId === effectiveOrganizationId || r.isSystem || r.organizationId == null
-  );
-
-  // Apply search filter
-  const filteredRoles = orgRoles.filter((role) =>
-    role.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    role.description?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Count members per role
-  const getMemberCount = (roleId: string) => {
-    return allUsers.filter((u) => u.roleId === roleId).length;
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setPage(1);
   };
 
   const handleDeleteRole = async (roleId: string) => {
@@ -122,7 +113,7 @@ export default function RolesPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5" />
-              All Roles ({filteredRoles.length})
+              All Roles ({totalRoles})
             </CardTitle>
             <CardDescription>
               System roles cannot be modified. Custom roles can be tailored to your needs.
@@ -136,14 +127,14 @@ export default function RolesPage() {
                 <Input
                   placeholder="Search roles..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-10"
                 />
               </div>
             </div>
 
             {/* Roles Table */}
-            {filteredRoles.length === 0 ? (
+            {allRoles.length === 0 ? (
               <EmptyState
                 icon={Shield}
                 title="No roles found"
@@ -176,8 +167,8 @@ export default function RolesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredRoles.map((role) => {
-                      const memberCount = getMemberCount(role.id);
+                    {allRoles.map((role) => {
+                      const memberCount = role._count?.users || 0;
                       const permissionCount = role.permissions.length;
 
                       return (
@@ -267,6 +258,14 @@ export default function RolesPage() {
                     })}
                   </TableBody>
                 </Table>
+                
+                <div className="p-4 flex items-center justify-between border-t">
+                  <span className="text-sm text-muted-foreground">Showing {allRoles.length} of {totalRoles} roles</span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>Previous</Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= totalRoles}>Next</Button>
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>

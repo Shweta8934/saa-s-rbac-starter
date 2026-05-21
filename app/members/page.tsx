@@ -56,31 +56,49 @@ export default function MembersPage() {
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<MemberWithProjects[]>([]);
+  const [totalMembers, setTotalMembers] = useState(0);
+  const [page, setPage] = useState(1);
+  const limit = 5;
   const [allRoles, setAllRoles] = useState<any[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState("");
-  const effectiveOrganizationId = user?.organizationId || selectedOrgId;
+  const isSuperAdmin = user?.roleSlug === 'super-admin';
+  const effectiveOrganizationId = isSuperAdmin ? "" : (user?.organizationId || selectedOrgId);
 
   useEffect(() => {
     async function loadForSuperAdmin() {
-      if (user?.organizationId) return;
+      if (user?.organizationId || isSuperAdmin) return;
       const orgRes = await fetch("/api/organizations", { cache: "no-store" });
       const orgData = await orgRes.json();
       const firstOrgId = orgData.organizations?.[0]?.id;
       if (firstOrgId && !selectedOrgId) setSelectedOrgId(firstOrgId);
     }
     loadForSuperAdmin();
-  }, [user?.organizationId, selectedOrgId]);
+  }, [user?.organizationId, selectedOrgId, isSuperAdmin]);
 
   useEffect(() => {
     async function loadData() {
-      if (!effectiveOrganizationId) return;
+      if (!isSuperAdmin && !effectiveOrganizationId) return;
+      
+      let usersQuery = effectiveOrganizationId 
+        ? `?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}` 
+        : `?requesterUserId=${user?.id ?? ""}`;
+        
+      usersQuery += `&page=${page}&limit=${limit}`;
+      if (searchQuery) usersQuery += `&search=${encodeURIComponent(searchQuery)}`;
+      if (roleFilter && roleFilter !== "all") usersQuery += `&roleId=${roleFilter}`;
+
+      const rolesQuery = effectiveOrganizationId 
+        ? `?organizationId=${effectiveOrganizationId}` 
+        : ``;
+
       const [usersRes, rolesRes] = await Promise.all([
-        fetch(`/api/users?organizationId=${effectiveOrganizationId}&requesterUserId=${user?.id ?? ""}`, { cache: "no-store" }),
-        fetch(`/api/roles?organizationId=${effectiveOrganizationId}`, { cache: "no-store" }),
+        fetch(`/api/users${usersQuery}`, { cache: "no-store" }),
+        fetch(`/api/roles${rolesQuery}`, { cache: "no-store" }),
       ]);
       const usersData = await usersRes.json();
       const rolesData = await rolesRes.json();
       setAllUsers(usersData.users ?? []);
+      setTotalMembers(usersData.totalCount ?? 0);
       setAllRoles(rolesData.roles ?? []);
     }
     loadData();
@@ -91,21 +109,19 @@ export default function MembersPage() {
       window.removeEventListener("focus", onFocus);
       window.clearInterval(interval);
     };
-  }, [effectiveOrganizationId, user?.id]);
+  }, [effectiveOrganizationId, user?.id, page, searchQuery, roleFilter]);
 
-  // Filter members by organization
-  const orgMembers = allUsers.filter((u) => u.organizationId === effectiveOrganizationId);
+  const orgRoles = isSuperAdmin ? allRoles : allRoles.filter((r) => r.organizationId === effectiveOrganizationId || r.isSystem);
 
-  // Apply search and role filters
-  const filteredMembers = orgMembers.filter((member: MemberWithProjects) => {
-    const matchesSearch =
-      member.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      member.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = roleFilter === "all" || member.roleId === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setPage(1);
+  };
 
-  const orgRoles = allRoles.filter((r) => r.organizationId === effectiveOrganizationId || r.isSystem);
+  const handleRoleChange = (val: string) => {
+    setRoleFilter(val);
+    setPage(1);
+  };
 
   const handleChangeRole = (memberId: string, newRoleId: string) => {
     console.log("Changing role for member", memberId, "to", newRoleId);
@@ -148,7 +164,7 @@ export default function MembersPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              All Members ({filteredMembers.length})
+              All Members ({totalMembers})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -159,11 +175,11 @@ export default function MembersPage() {
                 <Input
                   placeholder="Search by name or email..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-10"
                 />
               </div>
-              <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <Select value={roleFilter} onValueChange={handleRoleChange}>
                 <SelectTrigger className="w-full sm:w-[200px]">
                   <SelectValue placeholder="Filter by role" />
                 </SelectTrigger>
@@ -179,7 +195,7 @@ export default function MembersPage() {
             </div>
 
             {/* Members Table */}
-            {filteredMembers.length === 0 ? (
+            {allUsers.length === 0 ? (
               <EmptyState
                 icon={Users}
                 title="No members found"
@@ -221,7 +237,7 @@ export default function MembersPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredMembers.map((member) => {
+                    {allUsers.map((member) => {
                       const memberRole = allRoles.find(
                         (r) => r.id === member.roleId
                       );
@@ -327,6 +343,14 @@ export default function MembersPage() {
                     })}
                   </TableBody>
                 </Table>
+                
+                <div className="p-4 flex items-center justify-between border-t">
+                  <span className="text-sm text-muted-foreground">Showing {allUsers.length} of {totalMembers} users</span>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>Previous</Button>
+                    <Button variant="outline" size="sm" onClick={() => setPage(p => p + 1)} disabled={page * limit >= totalMembers}>Next</Button>
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>

@@ -43,8 +43,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: false, error: 'Signup is not enabled yet. Ask admin to create user.' }
   }, [])
 
+  const updateUser = useCallback((data: Partial<User>) => {
+    setUser(prev => {
+      if (!prev) return prev
+      const updated = { ...prev, ...data }
+      storeUser(updated)
+      return updated
+    })
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout, signup }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout, signup, updateUser }}>
       {children}
     </AuthContext.Provider>
   )

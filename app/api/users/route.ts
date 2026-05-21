@@ -18,6 +18,25 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const organizationId = searchParams.get('organizationId')
   const requesterUserId = searchParams.get('requesterUserId')
+  const page = parseInt(searchParams.get('page') || '1')
+  const limit = parseInt(searchParams.get('limit') || '50')
+  const search = searchParams.get('search') || ''
+  const status = searchParams.get('status')
+  const roleId = searchParams.get('roleId')
+
+  const skip = (page - 1) * limit
+
+  let baseWhere: any = {}
+  if (organizationId) baseWhere.organizationId = organizationId
+  if (status && status !== 'all') baseWhere.status = status
+  if (roleId && roleId !== 'all') baseWhere.roleId = roleId
+
+  if (search) {
+    baseWhere.OR = [
+      { name: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } }
+    ]
+  }
 
   if (organizationId && requesterUserId) {
     const requester = await prisma.user.findUnique({
@@ -27,39 +46,32 @@ export async function GET(req: Request) {
     const isHr = requester?.role?.slug === 'hr'
     if (isHr) {
       if (requester.organizationId !== organizationId) {
-        return NextResponse.json({ users: [] })
+        return NextResponse.json({ users: [], totalCount: 0 })
       }
-      const users = await prisma.user.findMany({
-        where: { organizationId },
-        orderBy: { createdAt: 'desc' },
-        include: {
-          projectMemberships: {
-            include: {
-              project: {
-                select: { id: true, name: true },
-              },
-            },
-          },
-        },
-      })
-      return NextResponse.json({ users })
     }
   }
 
-  const users = await prisma.user.findMany({
-    where: organizationId ? { organizationId } : undefined,
-    orderBy: { createdAt: 'desc' },
-    include: {
-      projectMemberships: {
-        include: {
-          project: {
-            select: { id: true, name: true },
+  const [users, totalCount] = await Promise.all([
+    prisma.user.findMany({
+      where: baseWhere,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        role: true,
+        projectMemberships: {
+          include: {
+            project: {
+              select: { id: true, name: true },
+            },
           },
         },
       },
-    },
-  })
-  return NextResponse.json({ users })
+    }),
+    prisma.user.count({ where: baseWhere })
+  ])
+
+  return NextResponse.json({ users, totalCount, page, limit })
 }
 
 export async function POST(req: Request) {

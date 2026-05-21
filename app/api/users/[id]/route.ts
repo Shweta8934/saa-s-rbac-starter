@@ -15,7 +15,19 @@ const updateSchema = z.object({
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const user = await prisma.user.findUnique({ where: { id } })
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      organization: { select: { id: true, name: true } },
+      role: { select: { id: true, name: true } },
+      projectMemberships: {
+        select: {
+          role: true,
+          project: { select: { id: true, name: true } }
+        }
+      }
+    }
+  })
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ user })
 }

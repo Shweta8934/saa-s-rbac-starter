@@ -2,6 +2,9 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +21,13 @@ import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const acceptSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+type AcceptFormData = z.infer<typeof acceptSchema>;
+
 export default function AcceptInvitePage({
   params,
 }: {
@@ -33,9 +43,16 @@ export default function AcceptInvitePage({
   const [organization, setOrganization] = useState<any>(null);
   const [role, setRole] = useState<any>(null);
   const [inviter, setInviter] = useState<any>(null);
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [acceptError, setAcceptError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<AcceptFormData>({
+    resolver: zodResolver(acceptSchema),
+    defaultValues: { name: "", password: "" },
+  });
 
   useEffect(() => {
     async function loadInvite() {
@@ -62,7 +79,7 @@ export default function AcceptInvitePage({
     invite.status === "pending" &&
     !isExpired;
 
-  const handleAccept = async () => {
+  const onSubmit = async (data: AcceptFormData) => {
     setIsAccepting(true);
     setAcceptError(null);
     const res = await fetch(`/api/invites/accept`, {
@@ -70,8 +87,8 @@ export default function AcceptInvitePage({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token,
-        name,
-        password,
+        name: data.name,
+        password: data.password,
       }),
     });
     if (res.ok) {
@@ -277,97 +294,105 @@ export default function AcceptInvitePage({
             {organization?.name}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">Your Name</Label>
-            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Set Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          {acceptError && <p className="text-sm text-destructive">{acceptError}</p>}
-
-          {/* Organization Info */}
-          <div className="flex items-center gap-3 p-3 rounded-lg border">
-            <Building2 className="h-5 w-5 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Organization</p>
-              <p className="text-sm text-muted-foreground">
-                {organization?.industry} •{" "}
-                {organization?.size?.replace("_", "-")} employees
-              </p>
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Your Name</Label>
+              <Input id="name" {...register("name")} />
+              {errors.name && (
+                <p className="text-sm text-destructive">{errors.name.message}</p>
+              )}
             </div>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="password">Set Password</Label>
+              <Input
+                id="password"
+                type="password"
+                {...register("password")}
+              />
+              {errors.password && (
+                <p className="text-sm text-destructive">{errors.password.message}</p>
+              )}
+            </div>
+            {acceptError && <p className="text-sm text-destructive">{acceptError}</p>}
 
-          {/* Role */}
-          {role && (
+            {/* Organization Info */}
             <div className="flex items-center gap-3 p-3 rounded-lg border">
-              <Shield className="h-5 w-5" style={{ color: role.color }} />
+              <Building2 className="h-5 w-5 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-sm font-medium">Your Role</p>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    style={{
-                      backgroundColor: `${role.color}20`,
-                      color: role.color,
-                    }}
-                  >
-                    {role.name}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {role.permissions.length} permissions
-                  </span>
+                <p className="text-sm font-medium">Organization</p>
+                <p className="text-sm text-muted-foreground">
+                  {organization?.industry} •{" "}
+                  {organization?.size?.replace("_", "-")} employees
+                </p>
+              </div>
+            </div>
+
+            {/* Role */}
+            {role && (
+              <div className="flex items-center gap-3 p-3 rounded-lg border">
+                <Shield className="h-5 w-5" style={{ color: role.color }} />
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Your Role</p>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      style={{
+                        backgroundColor: `${role.color}20`,
+                        color: role.color,
+                      }}
+                    >
+                      {role.name}
+                    </Badge>
+                    <span className="text-sm text-muted-foreground">
+                      {role.permissions.length} permissions
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Invited by */}
-          {inviter && (
+            {/* Invited by */}
+            {inviter && (
+              <div className="flex items-center gap-3 p-3 rounded-lg border">
+                <Users className="h-5 w-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium">Invited by</p>
+                  <p className="text-sm text-muted-foreground">{inviter.name}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Expiry */}
             <div className="flex items-center gap-3 p-3 rounded-lg border">
-              <Users className="h-5 w-5 text-muted-foreground" />
+              <Clock className="h-5 w-5 text-muted-foreground" />
               <div className="flex-1">
-                <p className="text-sm font-medium">Invited by</p>
-                <p className="text-sm text-muted-foreground">{inviter.name}</p>
+                <p className="text-sm font-medium">Expires</p>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(invite.expiresAt).toLocaleDateString()} at{" "}
+                  {new Date(invite.expiresAt).toLocaleTimeString()}
+                </p>
               </div>
             </div>
-          )}
-
-          {/* Expiry */}
-          <div className="flex items-center gap-3 p-3 rounded-lg border">
-            <Clock className="h-5 w-5 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Expires</p>
-              <p className="text-sm text-muted-foreground">
-                {new Date(invite.expiresAt).toLocaleDateString()} at{" "}
-                {new Date(invite.expiresAt).toLocaleTimeString()}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-        <CardFooter className="flex gap-3">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={handleDecline}
-            disabled={isAccepting}
-          >
-            Decline
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={handleAccept}
-            disabled={isAccepting || name.trim().length < 2 || password.length < 6}
-          >
-            {isAccepting ? "Accepting..." : "Accept Invitation"}
-          </Button>
-        </CardFooter>
+          </CardContent>
+          <CardFooter className="flex gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={handleDecline}
+              disabled={isAccepting}
+            >
+              Decline
+            </Button>
+            <Button
+              type="submit"
+              className="flex-1"
+              disabled={isAccepting}
+            >
+              {isAccepting ? "Accepting..." : "Accept Invitation"}
+            </Button>
+          </CardFooter>
+        </form>
       </Card>
     </div>
   );

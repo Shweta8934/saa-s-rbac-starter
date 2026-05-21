@@ -14,9 +14,36 @@ const updateSchema = z.object({
   actorUserId: z.string().optional(),
 })
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const organization = await prisma.organization.findUnique({ where: { id } })
+  
+  const organization = await prisma.organization.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: { users: true, projects: true }
+      },
+
+      projects: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          _count: { select: { members: true } },
+          members: {
+            select: {
+              role: true,
+              user: {
+                select: { id: true, name: true, email: true, avatar: true }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+  
   if (!organization) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ organization })
 }

@@ -56,6 +56,8 @@ model User {
   avatar         String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+  resetToken     String?     @unique
+  resetTokenExpiry DateTime?
 
   organization   Organization? @relation(fields: [organizationId], references: [id])
   role           Role?         @relation(fields: [roleId], references: [id])

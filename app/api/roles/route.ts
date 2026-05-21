@@ -17,15 +17,46 @@ const createSchema = z.object({
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const organizationId = searchParams.get('organizationId')
+  const page = parseInt(searchParams.get('page') || '1')
+  const limit = parseInt(searchParams.get('limit') || '50')
 
-  const roles = await prisma.role.findMany({
-    where: organizationId
-      ? { OR: [{ organizationId }, { isSystem: true }, { organizationId: null }] }
-      : undefined,
-    orderBy: { createdAt: 'desc' },
-  })
+  const search = searchParams.get('search') || ''
 
-  return NextResponse.json({ roles })
+  const skip = (page - 1) * limit
+  let where: any = organizationId
+    ? { OR: [{ organizationId }, { isSystem: true }, { organizationId: null }] }
+    : {}
+
+  if (search) {
+    const searchCondition = {
+      OR: [
+        { name: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ]
+    }
+    if (where.OR) {
+      where = { AND: [where, searchCondition] }
+    } else {
+      where = searchCondition
+    }
+  }
+
+  const [roles, totalCount] = await Promise.all([
+    prisma.role.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { users: true }
+        }
+      }
+    }),
+    prisma.role.count({ where })
+  ])
+
+  return NextResponse.json({ roles, totalCount, page, limit })
 }
 
 export async function POST(req: Request) {

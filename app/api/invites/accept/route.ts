@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/server/prisma'
 
 const schema = z.object({
@@ -9,9 +10,17 @@ const schema = z.object({
 })
 
 export async function POST(req: Request) {
-  const payload = schema.parse(await req.json())
-  const normalizedName = payload.name.trim()
-  const normalizedPassword = payload.password.trim()
+  try {
+    const json = await req.json()
+    const parseResult = schema.safeParse(json)
+    if (!parseResult.success) {
+      return NextResponse.json({ error: parseResult.error.errors[0].message }, { status: 400 })
+    }
+    
+    const payload = parseResult.data
+    const normalizedName = payload.name.trim()
+    const normalizedPassword = payload.password.trim()
+    const hashedPassword = await bcrypt.hash(normalizedPassword, 10)
 
   const invite = await prisma.invite.findUnique({ where: { token: payload.token } })
   if (!invite) return NextResponse.json({ error: 'Invalid invitation token' }, { status: 404 })
@@ -30,7 +39,7 @@ export async function POST(req: Request) {
           where: { id: existing.id },
           data: {
             name: normalizedName,
-            password: normalizedPassword,
+            password: hashedPassword,
             organizationId: invite.organizationId,
             roleId: invite.roleId,
             status: 'active',
@@ -40,7 +49,7 @@ export async function POST(req: Request) {
           data: {
             name: normalizedName,
             email: invite.email,
-            password: normalizedPassword,
+            password: hashedPassword,
             organizationId: invite.organizationId,
             roleId: invite.roleId,
             status: 'active',
@@ -62,4 +71,8 @@ export async function POST(req: Request) {
   })
 
   return NextResponse.json({ ok: true, userId: user.id })
+  } catch (error: any) {
+    console.error('Accept invite error:', error)
+    return NextResponse.json({ error: 'Failed to accept invitation' }, { status: 500 })
+  }
 }
