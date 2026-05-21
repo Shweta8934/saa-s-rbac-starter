@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
 }
 
 enum UserStatus {
@@ -99,7 +99,7 @@ model Role {
   description    String
   organizationId String?
   isSystem       Boolean   @default(false)
-  permissions    String[]
+  permissions    Json
   color          String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -136,7 +136,7 @@ model SubscriptionPlan {
   price       Int
   billingCycle String
   description String
-  features    String[]
+  features    Json
   limitsJson  Json
   isPopular   Boolean  @default(false)
 
