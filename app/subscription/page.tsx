@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PLAN_FEATURES, PLAN_NAMES, PLAN_PRICING } from "@/lib/constants";
 import { PlanTier } from "@/types";
 import { CreditCard, Download, Check, ArrowRight, Calendar, Receipt, AlertTriangle } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -28,6 +29,8 @@ type DbPayment = {
 };
 
 export default function SubscriptionPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { organization, user } = useAuth();
   const { can } = usePermission();
   const canUpdateBilling = can("billing:update") || user?.roleSlug === "billing";
@@ -94,6 +97,20 @@ export default function SubscriptionPage() {
     resolveDbActor();
   }, [user?.email]);
 
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const error = searchParams.get("error");
+    const plan = searchParams.get("plan");
+
+    if (success === "true" && plan) {
+      toast.success(`Successfully upgraded to ${PLAN_NAMES[plan as PlanTier] || plan}!`);
+      router.replace("/subscription");
+    } else if (error === "payment_failed") {
+      toast.error("Payment failed. Please try again.");
+      router.replace("/subscription");
+    }
+  }, [searchParams, router]);
+
   const handleUpgrade = (newPlan: PlanTier) => {
     setSelectedPlan(newPlan);
     setIsUpgradeDialogOpen(true);
@@ -123,9 +140,9 @@ export default function SubscriptionPage() {
         planSlug: selectedPlan,
         actorUserId: dbActorUserId || undefined,
       };
-      console.log("[SUBS][FRONTEND] purchase request payload", payload);
+      console.log("[SUBS][FRONTEND] Requesting Stripe checkout redirect session", payload);
 
-      const res = await fetch("/api/subscriptions/purchase", {
+      const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -135,37 +152,31 @@ export default function SubscriptionPage() {
       try {
         data = await res.json();
       } catch (parseErr) {
-        const fallbackText = await res.text().catch(() => "");
-        console.log("[SUBS][FRONTEND] response json parse failed", {
-          parseErr,
-          fallbackText,
-          status: res.status,
-        });
+        console.error("[SUBS][FRONTEND] response json parse failed", parseErr);
       }
-      console.log("[SUBS][FRONTEND] purchase response", {
+      
+      console.log("[SUBS][FRONTEND] checkout response", {
         ok: res.ok,
         status: res.status,
         data,
       });
-      if (!res.ok || !data?.success) {
-        toast.error(data?.error || "Purchase failed");
-        console.log("[SUBS][FRONTEND] purchase failed path reached");
+
+      if (!res.ok || !data?.success || !data?.url) {
+        toast.error(data?.error || "Failed to create checkout session");
         return;
       }
 
       setIsUpgradeDialogOpen(false);
-      console.log("[SUBS][FRONTEND] upgrade dialog closed");
-      setIsSuccessDialogOpen(true);
-      console.log("[SUBS][FRONTEND] success dialog opened");
       setSelectedPlan(null);
-      await loadData();
-      console.log("[SUBS][FRONTEND] loadData completed after purchase");
+      
+      // Redirect to Stripe checkout portal (simulated mock portal)
+      toast.success("Redirecting to secure payment portal...");
+      window.location.href = data.url;
     } catch (err) {
-      toast.error("Purchase failed");
-      console.log("[SUBS][FRONTEND] purchase exception thrown", err);
+      toast.error("Checkout failed");
+      console.error("[SUBS][FRONTEND] checkout exception thrown", err);
     } finally {
       setIsPurchasing(false);
-      console.log("[SUBS][FRONTEND] purchasing state reset");
     }
   };
 
